@@ -16,7 +16,7 @@ from scipy.spatial.transform import Rotation as R
 from manopth.manolayer import ManoLayer
 
 
-# Plyplayer
+# H2O Player
 class PlayerCallBack:
 
     def __init__(self, results, frame_list, objects=[], left_hand=[], right_hand=[], object_meshes=[], object_path=[], hand_path=[]):
