@@ -309,7 +309,9 @@ class PlayerCallBack:
             if self.rgb and vis_geometry_added:
                 self.current_rgb.clear()
                 vis2.remove_geometry(self.current_rgb)
-                if self.results.cam == 2:
+                if self.results.cam == 1:
+                    self.current_rgb = o3d.geometry.Image(rgbs[0][self.count])
+                elif self.results.cam == 2:
                     self.current_rgb = o3d.geometry.Image(np.concatenate(
                         (rgbs[0][self.count], rgbs[1][self.count]), axis=0))
                 elif self.results.cam == 5:
@@ -422,11 +424,12 @@ def load_plys(path, object_plys, results, frame_list, object_path=[], hands_path
     """
     load pointcloud by path and down samle (if True) based on voxel_size 
     """
-
     plys = [o3d.geometry.PointCloud() for _ in range(len(path))]
     if results.ply_create:
         color_calib = []
         for cam_num in range(results.cam):
+            if results.mode == 'ego':
+                cam_num = 4
             calib_path = results.source + \
                 "/cam{}/cam_intrinsics.txt".format(cam_num)
             cam_fx, cam_fy, cam_cx, cam_cy, _, _ = read_text(
@@ -436,58 +439,61 @@ def load_plys(path, object_plys, results, frame_list, object_path=[], hands_path
                 [[cam_fx, 0, cam_cx], [0, cam_fy, cam_cy], [0, 0, 1]]))
 
         depth_img = cv2.imread(
-            results.source+"/cam0/depth/{0:06d}.png".format(0), cv2.IMREAD_ANYDEPTH)
+            results.source+"/cam4/depth/{0:06d}.png".format(0), cv2.IMREAD_ANYDEPTH)
 
         point2d = cal_points2d(depth_img)
-    for idx, frame_num in tqdm.tqdm(enumerate(path)):
-        if results.no_ply:
-            ply = o3d.geometry.PointCloud()
-            plys[idx] = ply
-        else:
-            if results.ply_create:
-                ply = o3d.geometry.PointCloud()
-                for cam_num in range(results.cam):
-                    undist_depth = results.source + \
-                        "/cam{0}//depth/{1:06d}.png".format(
-                            cam_num, frame_list[idx])
-                    undist_rgb = results.source + \
-                        "/cam{0}//rgb/{1:06d}.png".format(
-                            cam_num, frame_list[idx])
 
+    for idx, frame_num in tqdm.tqdm(enumerate(path)):
+        if results.ply_create:
+            ply = o3d.geometry.PointCloud()
+
+            for cam_num in range(results.cam):
+                if results.mode == 'ego':
+                    cam_num = 4
+
+                undist_depth = results.source + \
+                    "/cam{0}//depth/{1:06d}.png".format(
+                        cam_num, frame_list[idx])
+                undist_rgb = results.source + \
+                    "/cam{0}//rgb/{1:06d}.png".format(
+                        cam_num, frame_list[idx])
+                if results.mode == 'ego':
+                    pcloud = get_pointcloud(
+                        undist_depth, undist_rgb, color_calib[0], point2d)
+                else:
                     pcloud = get_pointcloud(
                         undist_depth, undist_rgb, color_calib[cam_num], point2d)
 
-                    cam_pose_path = results.source + \
-                        "/cam{0}/cam_pose/{1:06d}.txt".format(
-                            cam_num, frame_list[idx])
-                    with open(cam_pose_path, 'r') as txt_file:
-                        data = txt_file.readline().split(" ")
-                        data = list(filter(lambda x: x != "", data))
+                cam_pose_path = results.source + \
+                    "/cam{0}/cam_pose/{1:06d}.txt".format(
+                        cam_num, frame_list[idx])
+                with open(cam_pose_path, 'r') as txt_file:
+                    data = txt_file.readline().split(" ")
+                    data = list(filter(lambda x: x != "", data))
 
-                    cam_pose = np.array(data).astype(np.float).reshape((4, 4))
-                    # need to fix this part
-                    pcloud.transform(cam_pose)
+                cam_pose = np.array(data).astype(np.float).reshape((4, 4))
+                # need to fix this part
+                pcloud.transform(cam_pose)
 
-                    ply += pcloud
-            else:
-                ply_path = results.source + \
-                    "/registered_pcl/{0:06d}.pcd".format(frame_num)
-                ply = o3d.io.read_point_cloud(ply_path)
-            if downsample == True:
-                ply_down = ply.voxel_down_sample(voxel_size=voxel_size)
-                objects = False
-                hands = False
-                if hands:
-                    hands_pcl = o3d.io.read_point_cloud(hands_path[idx])
-                    hands_pcl.colors = o3d.utility.Vector3dVector(np.reshape(
-                        [209/255., 163/255., 164/255.]*np.shape(hands_pcl.points)[0], (-1, 3)))
+                ply += pcloud
+        else:
+            ply = o3d.geometry.PointCloud()
+            plys[idx] = ply
+        if downsample == True:
+            ply_down = ply.voxel_down_sample(voxel_size=voxel_size)
+            objects = False
+            hands = False
+            if hands:
+                hands_pcl = o3d.io.read_point_cloud(hands_path[idx])
+                hands_pcl.colors = o3d.utility.Vector3dVector(np.reshape(
+                    [209/255., 163/255., 164/255.]*np.shape(hands_pcl.points)[0], (-1, 3)))
 
-                    #(209, 163, 164)
-                    # print(hands_pcl)
-                    ply_down += hands_pcl
-                plys[idx] = ply_down
-            else:
-                plys[idx] = ply
+                #(209, 163, 164)
+                # print(hands_pcl)
+                ply_down += hands_pcl
+            plys[idx] = ply_down
+        else:
+            plys[idx] = ply
     return plys
 
 
@@ -526,7 +532,7 @@ def load_meshes(object_meshes, results, object_path=[], hand_path=[], objects_fl
         if hands:
             # try:
 
-            extrinsic_matrix = np.loadtxt("{0}/cam2/cam_pose/{1:06d}.txt".
+            extrinsic_matrix = np.loadtxt("{0}/cam4/cam_pose/{1:06d}.txt".
                                           format(results.source, int(object_path[idx][-10:-4]))).reshape((4, 4))
             hand_pose = {}
             load_hand = np.loadtxt(hand_path[idx])
@@ -624,7 +630,6 @@ def load_meshes(object_meshes, results, object_path=[], hand_path=[], objects_fl
             right_hand[idx] = mesh_rh
         objects[idx] = mesh
 
-    print("objects", objects)
     return objects, left_hand, right_hand
 
 
@@ -672,12 +677,17 @@ def load_rgbs(path, results, action_lists):
 
     rgbs_allcam = []
     for cam_num, sub_path in enumerate(path):
+        if results.mode == "ego":
+            cam_num = 4
         rgbs = [np.array([[]]) for _ in range(len(path[0]))]
         # for idx in trange(len(path[0])):
         for idx, file_path in tqdm.tqdm(enumerate(sub_path)):
             (base, file_name) = os.path.split(file_path)
             #pil_img = Image.open(path[cam_num][idx])
-            cv_img = cv2.imread(path[cam_num][idx])
+            if results.mode == "ego":
+                cv_img = cv2.imread(path[0][idx])
+            else:
+                cv_img = cv2.imread(path[cam_num][idx])
             cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
 
             if results.action_info and cam_num == 0:
@@ -729,6 +739,7 @@ def load_rgbs(path, results, action_lists):
                     img_points[5][0]), (0, 255, 0), 5)
 
             if results.hand_proj:
+
                 points = read_text("{0}/cam{1}/hand_pose/{2:06d}.txt".format(
                     results.source, cam_num, int(file_name[:6])), 1, 64)
                 cam_fx, cam_fy, cam_cx, cam_cy, _, _ = read_text(
@@ -859,6 +870,8 @@ if __name__ == "__main__":
                         help="source directory", required=True)
     parser.add_argument("--obj_source", action="store",
                         help="object directory", default="/media/taein/dataset/objects/")
+    parser.add_argument("--mode", type=str, default="all", choices=["all", "ego"],
+                        help="Display all views or only an egocentric view")
 
     parser.add_argument("--obj_file", action="store_true",
                         default=False, help="use .obj file for 3D meshes of objects")
@@ -891,8 +904,6 @@ if __name__ == "__main__":
     parser.add_argument("--hand_proj", action="store_true",
                         help="add hand projection for rgb images")
 
-    parser.add_argument("--no_ply", action="store_true",
-                        help="not loading plys")
     parser.add_argument("--capture_img", action="store_true",
                         help="capture image from egocentric cam")
     parser.add_argument("--capture_skeleton", action="store_true",
@@ -913,9 +924,15 @@ if __name__ == "__main__":
             os.mkdir(capture_dir)
 
     frame_num = 65532
-    for cam_num in range(results.cam):
+
+    if results.mode == 'ego':
+        results.cam = 1
         frame_num = min(len(glob.glob(results.source +
-                        "/cam{}//rgb/".format(cam_num)+"*.png")), frame_num)
+                            "/cam{}//rgb/".format(4)+"*.png")), frame_num)
+    else:
+        for cam_num in range(results.cam):
+            frame_num = min(len(glob.glob(results.source +
+                            "/cam{}//rgb/".format(cam_num)+"*.png")), frame_num)
 
     action_lists = {}
 
@@ -953,13 +970,19 @@ if __name__ == "__main__":
     for ply_indi_path in ply_path:
         frame_list.append(ply_indi_path)
         hand_path.append(
-            results.source + "/cam2/hand_pose_mano/{0:06d}.txt".format(ply_indi_path))
+            results.source + "/cam4/hand_pose_mano/{0:06d}.txt".format(ply_indi_path))
         object_path.append(
             results.source + "/cam4/obj_pose_rt/{0:06d}.txt".format(ply_indi_path))
 
-        for cam_num in range(results.cam):
-            rgb_path[cam_num].append(
+        if results.mode == "ego":
+            cam_num = 4
+            rgb_path[0].append(
                 results.source + "/cam{0}//rgb/{1:06d}.png".format(cam_num, ply_indi_path))
+
+        else:
+            for cam_num in range(results.cam):
+                rgb_path[cam_num].append(
+                    results.source + "/cam{0}//rgb/{1:06d}.png".format(cam_num, ply_indi_path))
 
     for idx in range(len(object_path)):
         obj_pose = {}
@@ -996,6 +1019,7 @@ if __name__ == "__main__":
     object_plys = []
 
     rgbs = []
+
     if results.rgb:
         rgbs = load_rgbs(rgb_path, results, action_lists)
     objects = []
