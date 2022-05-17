@@ -950,12 +950,14 @@ if __name__ == "__main__":
         if not os.path.exists(ego_render_dir):
             os.makedirs(ego_render_dir)
 
-    for frame in range(startframe, endframe+1):
-        action_path = results.source + \
-            '/cam4/action_label/{0:06d}.txt'.format(frame)
-        action_idx = np.loadtxt(action_path)
-        # print("action_idx",action_idx)
-        action_lists[frame] = action_idx
+    if results.action_info:
+        for frame in range(startframe, endframe+1):
+            action_path = results.source + \
+                '/cam4/action_label/{0:06d}.txt'.format(frame)
+            action_idx = np.loadtxt(action_path)
+            # print("action_idx",action_idx)
+            action_lists[frame] = action_idx
+
     hand_path = []
     # print(obj_pose)
     # print(ply_path)
